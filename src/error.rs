@@ -3,12 +3,18 @@ use thiserror::Error as ThisError;
 /// Custom error type.
 #[derive(Debug, ThisError)]
 pub enum Error {
+    /// Error that may occur while giving wrong arguments.
+    #[error("Arguments error: `{0}`")]
+    ArgsError(String),
     /// Error that may occur during Config operations.
     #[error("Config error: `{0}`")]
     ConfigError(#[from] std::io::Error),
     /// Error that may occur while parsing integers.
     #[error("Failed to parse integer: `{0}`")]
     IntParseError(#[from] std::num::TryFromIntError),
+    /// Error that may occur while parsing serde.
+    #[error("Failed to parse serde: `{0}`")]
+    SerdeParseError(#[from] serde_json::Error),
 }
 
 /// Type alias for the standard [`Result`] type.

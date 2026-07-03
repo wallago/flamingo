@@ -1,6 +1,5 @@
 use clap::Parser;
-
-use crate::tui::ui::Tab;
+use ratatui::style::Color;
 
 /// Argument parser powered by [`clap`].
 #[derive(Clone, Debug, Default, Parser)]

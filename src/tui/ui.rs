@@ -1,19 +1,15 @@
 use crate::tui::state::State;
-use ansi_to_tui::IntoText;
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Margin, Position, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{
-        Block, Borders, Cell, Clear, Paragraph, Row, Scrollbar, ScrollbarOrientation,
-        ScrollbarState, Table, TableState, Tabs, Wrap,
+        Block, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table, Tabs, Wrap,
     },
 };
 use tui_big_text::{BigTextBuilder, PixelSize};
 use tui_input::Input;
-use tui_popup::Popup;
-use unicode_width::UnicodeWidthStr;
 
 /// Titles of the main tabs.
 pub const MAIN_TABS: &[&str] = Tab::get_headers();
@@ -254,8 +250,8 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
     .split(area[0])[1];
 
     let max_height = lines.len().saturating_sub(info_area.height as usize);
-    if max_height + 2 < state.general_scroll_index {
-        state.general_scroll_index = max_height + 2;
+    if max_height + 2 < state.available_option_scroll_index {
+        state.available_option_scroll_index = max_height + 2;
     }
 
     frame.render_widget(
@@ -270,7 +266,7 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
                     .title_alignment(Alignment::Center)
                     .border_style(Style::default().fg(Color::Rgb(100, 100, 100))),
             )
-            .scroll((state.general_scroll_index as u16, 0))
+            .scroll((state.available_option_scroll_index as u16, 0))
             .wrap(Wrap { trim: true }),
         info_area,
     );
@@ -282,7 +278,7 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
             vertical: 1,
             horizontal: 0,
         }),
-        &mut ScrollbarState::new(max_height).position(state.general_scroll_index),
+        &mut ScrollbarState::new(max_height).position(state.available_option_scroll_index),
     );
 
     if state.list.items.is_empty() {
