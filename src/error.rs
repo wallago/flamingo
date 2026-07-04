@@ -6,6 +6,9 @@ pub enum Error {
     /// Error that may occur while giving wrong arguments.
     #[error("Arguments error: `{0}`")]
     ArgsError(String),
+    /// Error that may occur while generate log file.
+    #[error("Arguments error: `{0}`")]
+    LogFileError(#[from] log::SetLoggerError),
     /// Error that may occur during Config operations.
     #[error("Config error: `{0}`")]
     ConfigError(#[from] std::io::Error),

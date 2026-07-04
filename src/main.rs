@@ -8,6 +8,13 @@ use termbg::Theme;
 
 fn main() -> Result<()> {
     let mut args = Args::parse();
+
+    simplelog::WriteLogger::init(
+        log::LevelFilter::Debug,
+        simplelog::Config::default(),
+        std::fs::File::create("flamingo.log")?,
+    )?;
+
     if args.accent_color.is_none() {
         args.accent_color = termbg::theme(Duration::from_millis(10))
             .map(|theme| {

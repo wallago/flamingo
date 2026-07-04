@@ -31,7 +31,8 @@ use crate::app::Config;
 
 /// Runs app.
 pub fn run(args: Args) -> Result<()> {
-    let config = Config::new(&args.config)?;
+    let mut config = Config::new(&args.config)?;
+    config.extract_modules()?;
     start_tui(args, config)
 }
 
@@ -47,7 +48,6 @@ pub fn start_tui(args: Args, config: Config) -> Result<()> {
     let backend = CrosstermBackend::new(io::stdout());
     let terminal = Terminal::new(backend)?;
     let events = EventHandler::new(250);
-    state.config.extract_modules()?;
     let mut tui = Tui::new(terminal, events);
     tui.init()?;
 

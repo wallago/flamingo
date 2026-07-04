@@ -1,4 +1,4 @@
-use crate::tui::state::State;
+use crate::tui::state::{Panel, State};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
@@ -213,16 +213,9 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
         vec![Line::from(vec![
             "Available Modules".cyan(),
             Span::raw(": ").fg(Color::Rgb(100, 100, 100)),
-            // TODO
-            // Get the number of options
-            (state
-                .config
-                .available_modules
-                .as_deref()
-                .unwrap_or_default()
-                .len())
-            .to_string()
-            .fg(state.accent_color),
+            (state.config.modules.len())
+                .to_string()
+                .fg(state.accent_color),
         ])]
     };
 
@@ -261,6 +254,7 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
         state.available_option_scroll_index = max_height + 2;
     }
 
+    // Module list.
     frame.render_widget(
         Paragraph::new(lines)
             .block(
@@ -292,59 +286,52 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
         return;
     }
 
-    let max_row_width = state
-        .list
-        .items
-        .iter()
-        .map(|v| v.join(" ").len())
-        .max()
-        .unwrap_or_default() as u16
-        + 5;
-
-    let table_area = Layout::new(
+    let panels = Layout::new(
         Direction::Horizontal,
-        [
-            Constraint::Length((area[1].width.checked_sub(max_row_width)).unwrap_or_default() / 2),
-            Constraint::Min(max_row_width),
-            Constraint::Length((area[1].width.checked_sub(max_row_width)).unwrap_or_default() / 2),
-        ],
+        [Constraint::Percentage(25), Constraint::Percentage(75)],
     )
+    .horizontal_margin(4)
+    .vertical_margin(1)
+    .spacing(4)
     .split(area[1]);
+    let table_area = panels[0];
 
-    let table_area = Layout::new(
-        Direction::Vertical,
-        [
-            Constraint::Min(state.list.items.len() as u16 + 3),
-            Constraint::Percentage(100),
-        ],
-    )
-    .split(table_area[1])[0];
+    let panel_border_style = |panel: Panel| {
+        Style::default().fg(if state.focused_panel == panel {
+            Color::Green
+        } else {
+            Color::Rgb(100, 100, 100)
+        })
+    };
+
     let items = state
         .list
         .items
-        .clone()
-        .into_iter()
-        .map(Row::new)
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let added = state
+                .config
+                .modules
+                .get(index)
+                .is_some_and(|module| module.added);
+            Row::new(vec![
+                if added {
+                    " 󰱒".green()
+                } else {
+                    " 󰄱".fg(Color::Rgb(100, 100, 100))
+                },
+                Span::raw(row.first().cloned().unwrap_or_default()),
+            ])
+        })
         .collect::<Vec<Row>>();
 
     frame.render_stateful_widget(
         Table::new(
             items.clone(),
-            &[
-                Constraint::Min(
-                    state
-                        .list
-                        .items
-                        .iter()
-                        .map(|v| v[0].len())
-                        .max()
-                        .unwrap_or_default() as u16
-                        + 1,
-                ),
-                Constraint::Percentage(100),
-            ],
+            &[Constraint::Length(2), Constraint::Percentage(100)],
         )
-        .header(Row::new(vec!["Library".bold(), "Path".bold()]))
+        .header(Row::new(vec!["".bold(), "Module".bold()]))
         .block(
             Block::bordered()
                 .title(vec![
@@ -353,7 +340,7 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
                     "|".fg(Color::Rgb(100, 100, 100)),
                 ])
                 .title_alignment(Alignment::Center)
-                .border_style(Style::default().fg(Color::Rgb(100, 100, 100)))
+                .border_style(panel_border_style(Panel::Modules))
                 .title_bottom(
                     if items_len != 0 {
                         Line::from(vec![
@@ -383,6 +370,55 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
         }),
         &mut ScrollbarState::new(items.len())
             .position(state.list.state.selected().unwrap_or_default()),
+    );
+
+    let (module_name, module_content) = state
+        .list
+        .state
+        .selected()
+        .and_then(|i| state.config.modules.get(i))
+        .map(|module| {
+            (
+                module.name.clone(),
+                module
+                    .content
+                    .clone()
+                    .unwrap_or_else(|| "source not available".to_string()),
+            )
+        })
+        .unwrap_or_default();
+
+    let content_height = module_content.lines().count();
+    let viewport_height = panels[1].height.saturating_sub(2) as usize;
+    let max_scroll = content_height.saturating_sub(viewport_height);
+    if state.selected_option_scroll_index > max_scroll {
+        state.selected_option_scroll_index = max_scroll;
+    }
+
+    frame.render_widget(
+        Paragraph::new(module_content)
+            .block(
+                Block::bordered()
+                    .title(vec![
+                        "|".fg(Color::Rgb(100, 100, 100)),
+                        module_name.fg(state.accent_color).bold(),
+                        "|".fg(Color::Rgb(100, 100, 100)),
+                    ])
+                    .title_alignment(Alignment::Center)
+                    .border_style(panel_border_style(Panel::Content)),
+            )
+            .scroll((state.selected_option_scroll_index as u16, 0)),
+        panels[1],
+    );
+    frame.render_stateful_widget(
+        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓")),
+        panels[1].inner(Margin {
+            vertical: 1,
+            horizontal: 0,
+        }),
+        &mut ScrollbarState::new(max_scroll).position(state.selected_option_scroll_index),
     );
 }
 

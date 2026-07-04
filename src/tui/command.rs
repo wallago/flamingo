@@ -19,8 +19,8 @@ pub enum ScrollType {
 pub enum Command {
     /// Open repository URL.
     OpenRepo,
-    /// Show details.
-    ShowDetails,
+    /// Add module.
+    AddModule,
     /// Next.
     Next(ScrollType, usize),
     /// Previous.
@@ -81,7 +81,7 @@ impl From<KeyEvent> for Command {
                 }
             }
             KeyCode::Backspace => Self::Input(InputCommand::Resume(Event::Key(key_event))),
-            KeyCode::Enter => Self::ShowDetails,
+            KeyCode::Enter => Self::AddModule,
             KeyCode::Char('o') => Self::OpenRepo,
             _ => Self::Nothing,
         }

@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::mpsc;
 
 use crate::app::Config;
@@ -12,6 +11,16 @@ use ratatui::style::Color;
 use tui_input::Input;
 use tui_input::backend::crossterm::EventHandler;
 
+/// Focusable panels of the General tab.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Panel {
+    /// Module list panel.
+    #[default]
+    Modules,
+    /// Module content panel.
+    Content,
+}
+
 /// Application state.
 #[derive(Debug)]
 pub struct State {
@@ -21,6 +30,8 @@ pub struct State {
     pub config: Config,
     /// Selected tab.
     pub tab: Tab,
+    /// Focused panel.
+    pub focused_panel: Panel,
     /// List items.
     pub list: SelectableList<Vec<String>>,
     /// Show details.
@@ -48,6 +59,7 @@ impl State {
             running: true,
             config,
             tab: Tab::default(),
+            focused_panel: Panel::default(),
             list: SelectableList::default(),
             show_details: false,
             input: Input::default(),
@@ -97,14 +109,16 @@ impl State {
                 }
                 self.handle_tab()?;
             }
-            Command::ShowDetails => {
+            Command::AddModule => {
                 if self.tab == Tab::General {
-                    if let Some(path) = self.list.selected().map(|v| PathBuf::from(v[1].clone())) {
-                        event_sender
-                            .send(Event::Restart(Some(path)))
-                            .expect("failed to send trace event");
+                    if let Some(module) = self
+                        .list
+                        .state
+                        .selected()
+                        .and_then(|index| self.config.modules.get_mut(index))
+                    {
+                        module.added = !module.added;
                     }
-                    return Ok(());
                 } else {
                     self.show_details = !self.show_details;
                 }
@@ -121,8 +135,21 @@ impl State {
                     .into();
                     self.handle_tab()?;
                 }
-                ScrollType::Table => {}
-                ScrollType::List => {}
+                ScrollType::Table => {
+                    if self.tab == Tab::General {
+                        self.focused_panel = Panel::Content;
+                    }
+                }
+                ScrollType::List => match self.focused_panel {
+                    Panel::Modules => {
+                        self.list.next(amount);
+                        self.selected_option_scroll_index = 0;
+                    }
+                    Panel::Content => {
+                        self.selected_option_scroll_index =
+                            self.selected_option_scroll_index.saturating_add(amount);
+                    }
+                },
             },
             Command::Previous(scroll_type, amount) => match scroll_type {
                 ScrollType::Tab => {
@@ -134,17 +161,27 @@ impl State {
                 }
                 ScrollType::Table => {
                     if self.tab == Tab::General {
-                        self.available_option_scroll_index =
-                            self.available_option_scroll_index.saturating_sub(amount);
+                        self.focused_panel = Panel::Modules;
                     }
                 }
-                ScrollType::List => self.list.previous(amount),
+                ScrollType::List => match self.focused_panel {
+                    Panel::Modules => {
+                        self.list.previous(amount);
+                        self.selected_option_scroll_index = 0;
+                    }
+                    Panel::Content => {
+                        self.selected_option_scroll_index =
+                            self.selected_option_scroll_index.saturating_sub(amount);
+                    }
+                },
             },
             Command::Top => {
                 self.list.first();
+                self.selected_option_scroll_index = 0;
             }
             Command::Bottom => {
                 self.list.last();
+                self.selected_option_scroll_index = 0;
             }
             Command::Exit => {
                 if self.show_details {
@@ -163,13 +200,11 @@ impl State {
         match self.tab {
             Tab::General => {
                 self.list = SelectableList::with_items(
-                    [self
-                        .config
-                        .available_modules
-                        .as_deref()
-                        .unwrap_or_default()
-                        .to_vec()]
-                    .to_vec(),
+                    self.config
+                        .modules
+                        .iter()
+                        .map(|module| vec![module.name.clone()])
+                        .collect(),
                 );
             }
         }
@@ -182,8 +217,9 @@ impl State {
             Tab::General => {
                 vec![
                     ("o", "Open docs"),
-                    ("⏎ ", "Analyze lib"),
-                    ("h/j/k/l", "Scroll"),
+                    ("⏎ ", "Add module"),
+                    ("h/l", "Focus panel"),
+                    ("j/k", "Scroll"),
                     ("Tab", "Next"),
                     ("⇧+Tab", "Previous"),
                     ("Bksp", "Back"),

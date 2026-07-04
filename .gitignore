@@ -1,1 +1,8 @@
+# Dev environement
+.env
+.direnv/
+
+
+# Added by cargo
+
 /target

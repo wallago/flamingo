@@ -1,0 +1,26 @@
+21:36:32 [DEBUG] (1) termbg: ignoring KeyEvent { code: Char(']'), modifiers: KeyModifiers(ALT), kind: Press, state: KeyEventState(0x0) }
+21:36:32 [DEBUG] (1) termbg: pushing 1
+21:36:32 [DEBUG] (1) termbg: pushing 1
+21:36:32 [DEBUG] (1) termbg: pushing ;
+21:36:32 [DEBUG] (1) termbg: pushing r
+21:36:32 [DEBUG] (1) termbg: pushing g
+21:36:32 [DEBUG] (1) termbg: pushing b
+21:36:32 [DEBUG] (1) termbg: pushing :
+21:36:32 [DEBUG] (1) termbg: pushing 1
+21:36:32 [DEBUG] (1) termbg: pushing e
+21:36:32 [DEBUG] (1) termbg: pushing 1
+21:36:32 [DEBUG] (1) termbg: pushing e
+21:36:32 [DEBUG] (1) termbg: pushing /
+21:36:32 [DEBUG] (1) termbg: pushing 1
+21:36:32 [DEBUG] (1) termbg: pushing e
+21:36:32 [DEBUG] (1) termbg: pushing 1
+21:36:32 [DEBUG] (1) termbg: pushing e
+21:36:32 [DEBUG] (1) termbg: pushing /
+21:36:32 [DEBUG] (1) termbg: pushing 2
+21:36:32 [DEBUG] (1) termbg: pushing e
+21:36:32 [DEBUG] (1) termbg: pushing 2
+21:36:32 [DEBUG] (1) termbg: pushing e
+21:36:32 [DEBUG] (1) termbg: End of response detected (KeyEvent { code: Char('\\'), modifiers: KeyModifiers(ALT), kind: Press, state: KeyEventState(0x0) }).
+21:36:32 [DEBUG] (1) termbg: Elapsed time: 2.67ms
+21:36:32 [DEBUG] (1) termbg: Raw mode restored to previous state (raw=false).
+21:36:32 [DEBUG] (1) termbg: Cleared any excess from stdin.

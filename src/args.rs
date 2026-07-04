@@ -24,7 +24,7 @@ use crate::tui::ui::Tab;
 )]
 pub struct Args {
     /// Path or URL to the Nixos configuration.
-    #[arg(short = 'c', long, value_name = "PATH | URL",value_parser = verify_flake )]
+    #[arg(env = "SOURCE",short = 'c', long, value_name = "PATH | URL",value_parser = verify_flake )]
     pub config: String,
 
     /// Accent color of the application.
