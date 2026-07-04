@@ -182,8 +182,8 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
             Line::default(),
             Line::default(),
             Line::from(vec![
-                "Analyze ELF binaries ".fg(state.accent_color),
-                "like a boss.".yellow().italic(),
+                "Trim Nix config ".fg(state.accent_color),
+                "like a pruner.".yellow().italic(),
             ]),
             Line::from(
                 ratatui::symbols::line::HORIZONTAL
@@ -196,7 +196,7 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
                 "with ".into(),
                 "♥".cyan(),
                 " by ".into(),
-                "@orhun".cyan(),
+                "@wallago".cyan(),
                 "]".fg(Color::Rgb(100, 100, 100)),
             ]),
         ]))
@@ -211,11 +211,18 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
         ]
     } else {
         vec![Line::from(vec![
-            "Size".cyan(),
+            "Available Modules".cyan(),
             Span::raw(": ").fg(Color::Rgb(100, 100, 100)),
             // TODO
             // Get the number of options
-            32.to_string().fg(state.accent_color),
+            (state
+                .config
+                .available_modules
+                .as_deref()
+                .unwrap_or_default()
+                .len())
+            .to_string()
+            .fg(state.accent_color),
         ])]
     };
 

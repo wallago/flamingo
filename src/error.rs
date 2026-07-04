@@ -15,6 +15,12 @@ pub enum Error {
     /// Error that may occur while parsing serde.
     #[error("Failed to parse serde: `{0}`")]
     SerdeParseError(#[from] serde_json::Error),
+    /// Error that may occur while receiving messages from the channel.
+    #[error("Channel receive error: `{0}`")]
+    ChannelReceiveError(#[from] std::sync::mpsc::RecvError),
+    /// Error that may occur while sending messages to the channel.
+    #[error("Channel send error: `{0}`")]
+    ChannelSendError(String),
 }
 
 /// Type alias for the standard [`Result`] type.

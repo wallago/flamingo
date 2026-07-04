@@ -1,51 +1,39 @@
 use crate::{
     error::{Error, Result},
-    tui::event::Event,
+    module::Module,
 };
-use heh::app::Application as Heh;
-use heh::decoder::Encoding;
-use ratatui::text::Line;
-use std::{
-    env,
-    fmt::{self, Debug, Formatter},
-    path::PathBuf,
-    process::Command,
-    sync::mpsc,
-    thread,
-};
+use std::process::Command;
 use tempdir::TempDir;
 use url::Url;
 
 /// Nixos Config.
+#[derive(Debug)]
 pub struct Config {
     /// Path of config.
-    pub path: String,
+    pub source: String,
     /// Tempdir to achieve all operations.
     temp: TempDir,
+    /// Config modules.
+    pub modules: Vec<Module>,
 }
 
 impl Config {
     /// Constructs a new instance.
-    pub fn new(local_path: Option<String>, git_repo_url: Option<Url>) -> Result<Self> {
+    pub fn new(source: &str) -> Result<Self> {
         let temp = TempDir::new("flamingo")?;
-        let path: String = match (local_path, git_repo_url) {
-            (Some(local_path), None) => local_path,
-            (None, Some(url)) => url.to_string(),
-            _ => {
-                return Err(Error::ArgsError(
-                    "local path or github repo URL not fit".into(),
-                ));
-            }
-        };
-        Ok(Self { path, temp })
+        Ok(Self {
+            source: source.to_string(),
+            temp,
+            modules: None,
+        })
     }
 
     /// Extracts modules.
-    pub fn extract_modules(&self) -> Result<Vec<String>> {
+    pub fn extract_modules(&mut self) -> Result<()> {
         let out = Command::new("nix")
             .args([
                 "eval",
-                &format!("{}#nixosModules", self.path),
+                &format!("{}#nixosModules", self.source),
                 "--apply",
                 "builtins.attrNames",
                 "--json",
@@ -53,7 +41,8 @@ impl Config {
             .output()?;
 
         let names: Vec<String> = serde_json::from_slice(&out.stdout)?;
-        Ok(names)
+        self.available_modules = Some(names);
+        Ok(())
         // nix eval .#nixosModules --apply builtins.attrNames --json | jq -r '.[]'
         // nix eval .#homeModules --apply builtins.attrNames --json | jq -r '.[]'
         // nix eval github:wallago/nix-config#nixosModules --apply builtins.attrNames --json

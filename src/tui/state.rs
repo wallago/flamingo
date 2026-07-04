@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::mpsc;
 
+use crate::app::Config;
 use crate::error::{Error, Result};
 use crate::tui::command::*;
 use crate::tui::event::Event;
@@ -16,10 +17,10 @@ use tui_input::backend::crossterm::EventHandler;
 pub struct State {
     /// Is the application running?
     pub running: bool,
+    /// Nixos Configuration.
+    pub config: Config,
     /// Selected tab.
     pub tab: Tab,
-    /// Elf info.
-    pub info_index: usize,
     /// List items.
     pub list: SelectableList<Vec<String>>,
     /// Show details.
@@ -42,11 +43,11 @@ pub struct State {
 
 impl State {
     /// Constructs a new instance of [`State`].
-    pub fn new(accent_color: Option<Color>) -> Result<Self> {
+    pub fn new(accent_color: Option<Color>, config: Config) -> Result<Self> {
         let mut state = Self {
             running: true,
+            config,
             tab: Tab::default(),
-            info_index: 0,
             list: SelectableList::default(),
             show_details: false,
             input: Input::default(),
@@ -161,7 +162,15 @@ impl State {
     pub fn handle_tab(&mut self) -> Result<()> {
         match self.tab {
             Tab::General => {
-                self.list = SelectableList::with_items([["aha".to_string()].to_vec()].to_vec());
+                self.list = SelectableList::with_items(
+                    [self
+                        .config
+                        .available_modules
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_vec()]
+                    .to_vec(),
+                );
             }
         }
         Ok(())
