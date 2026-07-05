@@ -17,6 +17,9 @@ pub mod error;
 /// Nixos module.
 pub mod module;
 
+/// Trim config behavior.
+pub mod trim;
+
 /// Common types that can be glob-imported for convenience.
 pub mod prelude;
 
@@ -42,7 +45,7 @@ pub fn start_tui(args: Args, config: Config) -> Result<()> {
     let mut state = State::new(args.accent_color, config)?;
 
     // Change tab depending on cli arguments.
-    state.set_tab(args.tab);
+    state.set_tab(args.tab)?;
 
     // Initialize the terminal user interface.
     let backend = CrosstermBackend::new(io::stdout());

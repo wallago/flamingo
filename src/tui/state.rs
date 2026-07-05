@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::mpsc;
 
 use crate::app::Config;
@@ -72,6 +73,8 @@ pub struct State {
     pub export_stage: ExportStage,
     /// Transient status message shown in the input slot.
     pub status: Option<String>,
+    /// Module rows shown in the Config tab, as `(depth, module index)`.
+    pub module_rows: Vec<(usize, usize)>,
 }
 
 impl State {
@@ -93,6 +96,7 @@ impl State {
             logo: Logo::default(),
             export_stage: ExportStage::default(),
             status: None,
+            module_rows: Vec::new(),
         };
         state.handle_tab()?;
         Ok(state)
@@ -116,9 +120,6 @@ impl State {
                         self.input.handle_event(&event);
                     }
                     InputCommand::Enter => {}
-                    InputCommand::Confirm => {
-                        self.input_mode = false;
-                    }
                     InputCommand::Resume(event) => {
                         if self.tab == Tab::General {
                             event_sender
@@ -182,14 +183,23 @@ impl State {
                 self.handle_tab()?;
             }
             Command::AddModule => {
-                if self.tab == Tab::General {
-                    if let Some(module) = self
-                        .list
-                        .state
-                        .selected()
-                        .and_then(|index| self.config.modules.get_mut(index))
+                if self.tab == Tab::Config {
+                    if let Some(row) = self.list.state.selected()
+                        && let Some((depth, index)) = self.module_rows.get(row).copied()
+                        && let Some(module) = self.config.modules.get_mut(index)
                     {
                         module.added = !module.added;
+                        let added = module.added;
+                        // Propagate to the whole subtree below this row.
+                        for &(child_depth, child_index) in self.module_rows.iter().skip(row + 1)
+                        {
+                            if child_depth <= depth {
+                                break;
+                            }
+                            if let Some(child) = self.config.modules.get_mut(child_index) {
+                                child.added = added;
+                            }
+                        }
                     }
                 } else {
                     self.show_details = !self.show_details;
@@ -208,7 +218,7 @@ impl State {
                     self.handle_tab()?;
                 }
                 ScrollType::Table => {
-                    if self.tab == Tab::General {
+                    if self.tab == Tab::Config {
                         self.focused_panel = Panel::Content;
                     }
                 }
@@ -232,7 +242,7 @@ impl State {
                     self.handle_tab()?;
                 }
                 ScrollType::Table => {
-                    if self.tab == Tab::General {
+                    if self.tab == Tab::Config {
                         self.focused_panel = Panel::Modules;
                     }
                 }
@@ -280,11 +290,15 @@ impl State {
     pub fn handle_tab(&mut self) -> Result<()> {
         match self.tab {
             Tab::General => {
+                self.module_rows = Vec::new();
+                self.list = SelectableList::default();
+            }
+            Tab::Config => {
+                self.module_rows = self.config.module_tree();
                 self.list = SelectableList::with_items(
-                    self.config
-                        .modules
+                    self.module_rows
                         .iter()
-                        .map(|module| vec![module.name.clone()])
+                        .map(|(_, index)| vec![self.config.modules[*index].name.clone()])
                         .collect(),
                 );
             }
@@ -298,21 +312,28 @@ impl State {
             Tab::General => {
                 vec![
                     ("o", "Open docs"),
+                    ("Tab", "Next"),
+                    ("⇧+Tab", "Previous"),
+                    ("q", "Quit"),
+                ]
+            }
+            Tab::Config => {
+                vec![
                     ("⏎ ", "Add module"),
+                    ("e", "Export"),
                     ("h/l", "Focus panel"),
                     ("j/k", "Scroll"),
                     ("Tab", "Next"),
                     ("⇧+Tab", "Previous"),
-                    ("Bksp", "Back"),
                     ("q", "Quit"),
-                    ("e", "Export"),
                 ]
             }
         }
     }
 
-    /// Changes the tab
-    pub fn set_tab(&mut self, tab: Tab) {
+    /// Changes the tab and rebuilds the tab-dependent state.
+    pub fn set_tab(&mut self, tab: Tab) -> Result<()> {
         self.tab = tab;
+        self.handle_tab()
     }
 }

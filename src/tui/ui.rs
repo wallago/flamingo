@@ -1,4 +1,6 @@
+use crate::ExportStage;
 use crate::tui::state::{Panel, State};
+use ratatui::widgets::Clear;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
@@ -26,12 +28,14 @@ pub enum Tab {
     /// General information.
     #[default]
     General = 0,
+    /// Nixos config modules.
+    Config = 1,
 }
 
 impl Tab {
     /// Returns the available tabs.
     const fn get_headers() -> &'static [&'static str] {
-        &["General"]
+        &["General", "Config"]
     }
 }
 
@@ -39,6 +43,7 @@ impl From<usize> for Tab {
     fn from(v: usize) -> Self {
         match v {
             0 => Self::General,
+            1 => Self::Config,
             _ => Self::default(),
         }
     }
@@ -99,7 +104,6 @@ pub fn render(state: &mut State, frame: &mut Frame) {
                     .fg(state.accent_color),
             );
         frame.render_widget(tabs, chunks[0]);
-        let mut files = Vec::new();
         frame.render_widget(
             Paragraph::new(get_input_line(state)).alignment(Alignment::Right),
             chunks[1],
@@ -108,6 +112,9 @@ pub fn render(state: &mut State, frame: &mut Frame) {
     match state.tab {
         Tab::General => {
             render_general_info(state, frame, chunks[1]);
+        }
+        Tab::Config => {
+            render_config(state, frame, chunks[1]);
         }
     }
     render_key_bindings(state, frame, chunks[1]);
@@ -144,9 +151,6 @@ pub fn render_key_bindings(state: &mut State, frame: &mut Frame, rect: Rect) {
 
 /// Renders the general info tab.
 pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
-    let selected_index = state.list.state.selected().unwrap_or_default();
-    let items_len = state.list.items.len();
-
     frame.render_widget(Block::bordered(), rect);
     let area = Layout::new(
         Direction::Vertical,
@@ -208,13 +212,31 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
             Line::from("See <https://github.com/orhun/binsider/issues/35>"),
         ]
     } else {
-        vec![Line::from(vec![
-            "Available Modules".cyan(),
-            Span::raw(": ").fg(Color::Rgb(100, 100, 100)),
-            (state.config.modules.len())
-                .to_string()
-                .fg(state.accent_color),
-        ])]
+        let added = state
+            .config
+            .modules
+            .iter()
+            .filter(|module| module.added)
+            .count();
+        vec![
+            Line::from(vec![
+                "Source".cyan(),
+                Span::raw(": ").fg(Color::Rgb(100, 100, 100)),
+                state.config.source.clone().fg(state.accent_color),
+            ]),
+            Line::from(vec![
+                "Available Modules".cyan(),
+                Span::raw(": ").fg(Color::Rgb(100, 100, 100)),
+                (state.config.modules.len())
+                    .to_string()
+                    .fg(state.accent_color),
+            ]),
+            Line::from(vec![
+                "Added Modules".cyan(),
+                Span::raw(": ").fg(Color::Rgb(100, 100, 100)),
+                added.to_string().fg(state.accent_color),
+            ]),
+        ]
     };
 
     let info_width = lines.iter().map(|v| v.width()).max().unwrap_or_default() as u16 + 2;
@@ -224,16 +246,7 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
     });
     let area = Layout::new(
         Direction::Vertical,
-        if state.list.items.is_empty() {
-            vec![Constraint::Max(lines.len() as u16 + 2)]
-        } else if (lines.len() as u16).saturating_sub(2) < rect.height / 2 {
-            vec![
-                Constraint::Min(lines.len() as u16 + 2),
-                Constraint::Percentage(100),
-            ]
-        } else {
-            vec![Constraint::Percentage(50), Constraint::Percentage(50)]
-        },
+        [Constraint::Max(lines.len() as u16 + 2)],
     )
     .split(rect);
 
@@ -279,8 +292,23 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
         }),
         &mut ScrollbarState::new(max_height).position(state.available_option_scroll_index),
     );
+}
+
+/// Renders the config tab: module tree and content panels.
+pub fn render_config(state: &mut State, frame: &mut Frame, rect: Rect) {
+    let selected_index = state.list.state.selected().unwrap_or_default();
+    let items_len = state.list.items.len();
+
+    frame.render_widget(Block::bordered(), rect);
 
     if state.list.items.is_empty() {
+        frame.render_widget(
+            Paragraph::new("no modules found").centered(),
+            rect.inner(Margin {
+                horizontal: 1,
+                vertical: 1,
+            }),
+        );
         return;
     }
 
@@ -291,7 +319,10 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
     .horizontal_margin(4)
     .vertical_margin(1)
     .spacing(4)
-    .split(area[1]);
+    .split(rect.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    }));
     let table_area = panels[0];
 
     let panel_border_style = |panel: Panel| {
@@ -307,34 +338,33 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
         .items
         .iter()
         .enumerate()
-        .map(|(index, row)| {
+        .map(|(row_index, row)| {
             let added = state
-                .config
-                .modules
-                .get(index)
+                .module_rows
+                .get(row_index)
+                .and_then(|(_, index)| state.config.modules.get(*index))
                 .is_some_and(|module| module.added);
-            Row::new(vec![
+            Row::new(vec![Line::from(vec![
+                Span::raw(" "),
+                tree_prefix(&state.module_rows, row_index).fg(Color::Rgb(100, 100, 100)),
                 if added {
-                    " 󰱒".green()
+                    "󰱒 ".green()
                 } else {
-                    " 󰄱".fg(Color::Rgb(100, 100, 100))
+                    "󰄱 ".fg(Color::Rgb(100, 100, 100))
                 },
                 Span::raw(row.first().cloned().unwrap_or_default()),
-            ])
+            ])])
         })
         .collect::<Vec<Row>>();
 
     frame.render_stateful_widget(
-        Table::new(
-            items.clone(),
-            &[Constraint::Length(2), Constraint::Percentage(100)],
-        )
-        .header(Row::new(vec!["".bold(), "Module".bold()]))
+        Table::new(items.clone(), &[Constraint::Percentage(100)])
+            .header(Row::new(vec!["Module".bold()]))
         .block(
             Block::bordered()
                 .title(vec![
                     "|".fg(Color::Rgb(100, 100, 100)),
-                    "Dependencies".fg(state.accent_color).bold(),
+                    "Modules".fg(state.accent_color).bold(),
                     "|".fg(Color::Rgb(100, 100, 100)),
                 ])
                 .title_alignment(Alignment::Center)
@@ -374,7 +404,8 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
         .list
         .state
         .selected()
-        .and_then(|i| state.config.modules.get(i))
+        .and_then(|row| state.module_rows.get(row))
+        .and_then(|(_, index)| state.config.modules.get(*index))
         .map(|module| {
             (
                 module.name.clone(),
@@ -420,6 +451,31 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
     );
 }
 
+/// Builds the tree guide prefix (`│  ├─ └─`) for a module row.
+fn tree_prefix(rows: &[(usize, usize)], row: usize) -> String {
+    let Some(&(depth, _)) = rows.get(row) else {
+        return String::new();
+    };
+    if depth == 0 {
+        return String::new();
+    }
+    let mut prefix = String::new();
+    // Continuation bar for each ancestor level that has more siblings below.
+    for level in 1..depth {
+        let continues = rows[row + 1..]
+            .iter()
+            .take_while(|(next_depth, _)| *next_depth >= level)
+            .any(|(next_depth, _)| *next_depth == level);
+        prefix.push_str(if continues { "│  " } else { "   " });
+    }
+    let last = !rows[row + 1..]
+        .iter()
+        .take_while(|(next_depth, _)| *next_depth >= depth)
+        .any(|(next_depth, _)| *next_depth == depth);
+    prefix.push_str(if last { "└─ " } else { "├─ " });
+    prefix
+}
+
 /// Returns the input line.
 fn get_input_line<'a>(state: &'a State) -> Line<'a> {
     if let Some(status) = &state.status {
@@ -429,11 +485,11 @@ fn get_input_line<'a>(state: &'a State) -> Line<'a> {
             "|".fg(Color::Rgb(100, 100, 100)),
         ]);
     }
-    let label = match &state.export_stage {
-        ExportStage::Hostname => "hostname: ",
-        ExportStage::OutputDir { .. } => "output dir: ",
-        _ => "search: ",
-    };
+    // Export prompts render in their own popup, not in the header slot.
+    if !matches!(state.export_stage, ExportStage::Idle) {
+        return Line::default();
+    }
+    let label = "search: ";
     if !state.input.value().is_empty() || state.input_mode {
         Line::from(vec![
             "|".fg(Color::Rgb(100, 100, 100)),
@@ -463,11 +519,71 @@ fn highlight_search_result<'a>(line: Line<'a>, input: &'a Input) -> Vec<Span<'a>
     }
 }
 
-/// Renders the export result popup, if the export flow just finished.
+/// Renders the export popup: input prompts while the flow is running,
+/// then the report or error once it finished.
 fn render_export_popup(state: &State, frame: &mut Frame) {
-    let ExportStage::Done(result) = &state.export_stage else {
-        return;
+    let (title, lines) = match &state.export_stage {
+        ExportStage::Idle => return,
+        ExportStage::Hostname => (
+            "Export 1/2",
+            export_prompt_lines("hostname: ", state),
+        ),
+        ExportStage::OutputDir { .. } => (
+            "Export 2/2",
+            export_prompt_lines("output dir: ", state),
+        ),
+        ExportStage::Done(result) => ("Export", export_report_lines(result, state)),
     };
+    let area = frame.area();
+    let width = (area.width / 2)
+        .max(40)
+        .min(area.width.saturating_sub(4))
+        .max(1);
+    let height = (lines.len() as u16 + 2).min(area.height.saturating_sub(2)).max(1);
+    let popup = Rect::new(
+        area.width.saturating_sub(width) / 2,
+        area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: true }).block(
+            Block::bordered()
+                .title(vec![
+                    "|".fg(Color::Rgb(100, 100, 100)),
+                    title.fg(state.accent_color).bold(),
+                    "|".fg(Color::Rgb(100, 100, 100)),
+                ])
+                .title_alignment(Alignment::Center)
+                .border_style(Style::default().fg(state.accent_color)),
+        ),
+        popup,
+    );
+}
+
+/// Builds the lines of an export input prompt.
+fn export_prompt_lines<'a>(label: &'a str, state: &'a State) -> Vec<Line<'a>> {
+    vec![
+        Line::from(vec![
+            label.yellow(),
+            state.input.value().fg(state.accent_color),
+            "█".fg(Color::Rgb(100, 100, 100)),
+        ]),
+        Line::default(),
+        Line::from(vec![
+            "[⏎ confirm]".fg(Color::Rgb(100, 100, 100)),
+            " ".into(),
+            "[esc cancel]".fg(Color::Rgb(100, 100, 100)),
+        ]),
+    ]
+}
+
+/// Builds the lines of the export result.
+fn export_report_lines<'a>(
+    result: &'a std::result::Result<crate::trim::ExportReport, String>,
+    _state: &State,
+) -> Vec<Line<'a>> {
     let mut lines = match result {
         Ok(report) => {
             let mut lines = vec![
@@ -505,34 +621,24 @@ fn render_export_popup(state: &State, frame: &mut Frame) {
     lines.push(Line::from(
         "press any key to close".fg(Color::Rgb(100, 100, 100)),
     ));
-    let area = frame.area();
-    let width = (area.width / 2).clamp(40.min(area.width), area.width.saturating_sub(4));
-    let height = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
-    let popup = Rect::new(
-        area.width.saturating_sub(width) / 2,
-        area.height.saturating_sub(height) / 2,
-        width,
-        height,
-    );
-    frame.render_widget(Clear, popup);
-    frame.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: true }).block(
-            Block::bordered()
-                .title(vec![
-                    "|".fg(Color::Rgb(100, 100, 100)),
-                    "Export".fg(state.accent_color).bold(),
-                    "|".fg(Color::Rgb(100, 100, 100)),
-                ])
-                .title_alignment(Alignment::Center),
-        ),
-        popup,
-    );
+    lines
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_tree_prefix() {
+        // desktop > (compositor > niri), desktopShell; server standalone.
+        let rows = vec![(0, 0), (1, 1), (2, 2), (1, 3), (0, 4)];
+        assert_eq!(tree_prefix(&rows, 0), "");
+        assert_eq!(tree_prefix(&rows, 1), "├─ ");
+        assert_eq!(tree_prefix(&rows, 2), "│  └─ ");
+        assert_eq!(tree_prefix(&rows, 3), "└─ ");
+        assert_eq!(tree_prefix(&rows, 4), "");
+    }
 
     #[test]
     fn test_highlight_search_string() {

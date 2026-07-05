@@ -4,3 +4,4 @@ list_previous = ["k", "up"]
 content_scroll_down = "l"
 content_scroll_up = "h"
 quit = ["q", "esc"]
+export = "e"

@@ -14,8 +14,19 @@ pub fn extract_inputs(src: &str) -> Option<String> {
             .chars()
             .next_back()
             .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '@');
-        let declaration =
-            src[after..].starts_with('.') || src[after..].trim_start().starts_with('=');
+        let declaration = if src[after..].starts_with('.') {
+            // Dotted form: require `=` right after the attribute path
+            // (`inputs.foo.url = …`), rejecting usages like
+            // `inputs.flake-parts.lib.mkFlake { … }`.
+            src[after..]
+                .trim_start_matches(|c: char| {
+                    c == '.' || c == '-' || c == '_' || c == '"' || c.is_alphanumeric()
+                })
+                .trim_start()
+                .starts_with('=')
+        } else {
+            src[after..].trim_start().starts_with('=')
+        };
         if !boundary_before || !declaration {
             continue;
         }
@@ -139,6 +150,20 @@ mod tests {
             "inputs.nixpkgs.url = \"github:NixOS/nixpkgs\";"
         );
         assert_eq!(extract_inputs("{ outputs = _: { }; }"), None);
+    }
+
+    #[test]
+    fn test_extract_inputs_ignores_usages() {
+        let src = r#"{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+  };
+  outputs = inputs: inputs.flake-parts.lib.mkFlake { inherit inputs; } (inputs.import-tree ./modules);
+}"#;
+        let inputs = extract_inputs(src).unwrap();
+        assert!(inputs.contains("nixpkgs.url"));
+        assert!(!inputs.contains("mkFlake"));
+        assert!(!inputs.contains("import-tree"));
     }
 
     #[test]

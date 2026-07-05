@@ -91,6 +91,28 @@ fn flake_root(source: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
+/// Returns the flake's store path from `nix flake metadata`, if available.
+fn flake_store_path(source: &str) -> Option<PathBuf> {
+    let out = nix_raw(&["flake", "metadata", "--json", "--no-write-lock-file", source])?;
+    let metadata: serde_json::Value = serde_json::from_str(&out).ok()?;
+    Some(PathBuf::from(metadata.get("path")?.as_str()?))
+}
+
+/// Resolves a module entry path onto the source tree root.
+///
+/// `nix eval` reports `_file` paths inside the flake's store copy
+/// (`/nix/store/…-source/…`) even when the flake lives in a local
+/// directory; such paths are rebased onto `root` so they can be
+/// scanned and copied from the local tree.
+fn rebase_module_path(path: &Path, root: &Path, store_root: Option<&Path>) -> Option<PathBuf> {
+    if path.starts_with(root) {
+        return fs::canonicalize(path).ok();
+    }
+    let store = store_root?;
+    let rel = path.strip_prefix(store).ok()?;
+    fs::canonicalize(root.join(rel)).ok()
+}
+
 /// Trims the source config down to the selected modules and writes a fresh,
 /// self-contained flake for `hostname` into `output_dir`.
 ///
@@ -105,16 +127,15 @@ pub fn export(request: &ExportRequest) -> Result<ExportReport> {
         )));
     }
     let root = flake_root(&request.source)?;
+    let store_root = flake_store_path(&request.source).filter(|store| *store != root);
     let mut warnings = Vec::new();
 
     let mut seeds = Vec::new();
     let mut wired = Vec::new();
     for module in &request.modules {
-        match module
-            .path
-            .as_ref()
-            .and_then(|path| fs::canonicalize(path).ok())
-        {
+        match module.path.as_ref().and_then(|path| {
+            rebase_module_path(Path::new(path), &root, store_root.as_deref())
+        }) {
             Some(path) if path.starts_with(&root) => {
                 if let Ok(rel) = path.strip_prefix(&root) {
                     wired.push(rel.to_path_buf());
@@ -127,7 +148,17 @@ pub fn export(request: &ExportRequest) -> Result<ExportReport> {
         }
     }
     if seeds.is_empty() {
-        return Err(Error::ExportError("no exportable modules selected".into()));
+        let skipped = warnings
+            .iter()
+            .filter_map(|warning| match warning {
+                Warning::UnresolvedModule { name } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(Error::ExportError(format!(
+            "none of the selected modules have a resolvable source path (skipped: {skipped})"
+        )));
     }
 
     let mut scanned = deps::scan(&root, &seeds);

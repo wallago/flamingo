@@ -1,5 +1,6 @@
 pub use super::error::*;
 pub use super::module::*;
+pub use super::trim::deps::*;
 pub use super::tui::command::*;
 pub use super::tui::event::*;
 pub use super::tui::state::*;
