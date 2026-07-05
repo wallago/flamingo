@@ -843,6 +843,7 @@ dependencies = [
  "log",
  "pretty_assertions",
  "ratatui",
+ "regex",
  "serde",
  "serde_json",
  "simplelog",
