@@ -24,6 +24,9 @@ pub enum Error {
     /// Error that may occur while sending messages to the channel.
     #[error("Channel send error: `{0}`")]
     ChannelSendError(String),
+    /// Error that may occur during config export.
+    #[error("Export error: `{0}`")]
+    ExportError(String),
 }
 
 /// Type alias for the standard [`Result`] type.
