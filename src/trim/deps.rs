@@ -2,9 +2,9 @@ use crate::module::Module;
 
 use regex::Regex;
 use std::collections::BTreeSet;
-use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::{fmt, fs};
 
 /// Non-fatal problem discovered while trimming a config.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,6 +151,77 @@ pub fn path_literals(src: &str) -> Vec<PathLiteral> {
         .collect()
 }
 
+/// Result of a transitive dependency scan.
+#[derive(Debug, Default)]
+pub struct ScanResult {
+    /// Absolute paths of every file to copy.
+    pub files: BTreeSet<PathBuf>,
+    /// Non-fatal problems encountered while scanning.
+    pub warnings: Vec<Warning>,
+}
+
+// Transitively collects the local files referenced by the seed `.nix` files.
+pub fn scan(root: &Path, seeds: &[PathBuf]) -> ScanResult {
+    let mut result = ScanResult::default();
+    let mut todo: Vec<PathBuf> = seeds.to_vec();
+    while let Some(file) = todo.pop() {
+        if !result.files.insert(file.clone()) {
+            continue;
+        }
+        let src = match fs::read_to_string(&file) {
+            Ok(src) => src,
+            Err(_) => {
+                result.files.remove(&file);
+                result.warnings.push(Warning::Unreadable { file });
+                continue;
+            }
+        };
+        let dir = file.parent().unwrap_or(root).to_path_buf();
+        for literal in path_literals(&src) {
+            if literal.dynamic {
+                result.warnings.push(Warning::Dynamic {
+                    file: file.clone(),
+                    literal: literal.text,
+                });
+                continue;
+            }
+            let target = match fs::canonicalize(dir.join(&literal.text)) {
+                Ok(target) => target,
+                Err(_) => {
+                    result.warnings.push(Warning::Missing {
+                        file: file.clone(),
+                        literal: literal.text,
+                    });
+                    continue;
+                }
+            };
+            if !target.starts_with(root) {
+                result.warnings.push(Warning::OutsideRepo {
+                    file: file.clone(),
+                    literal: literal.text,
+                });
+                continue;
+            }
+            if target.is_dir() {
+                let entry = target.join("default.nix");
+                if entry.is_file() {
+                    todo.push(entry);
+                } else {
+                    result.warnings.push(Warning::Missing {
+                        file: file.clone(),
+                        literal: format!("{}/default.nix", literal.text),
+                    });
+                }
+            } else if target.extension().is_some_and(|ext| ext == "nix") {
+                todo.push(target);
+            } else {
+                result.files.insert(target);
+            }
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +258,85 @@ mod tests {
         assert!(path_literals("{ pkgs, ... }: {}").is_empty());
         // `.../x` : the leading dot glues to a previous dot — not a path.
         assert!(path_literals("a.../x").is_empty());
+    }
+
+    use std::fs;
+    use tempdir::TempDir;
+
+    fn write(root: &std::path::Path, rel: &str, content: &str) {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn test_scan_collects_transitive_deps() {
+        let dir = TempDir::new("flamingo-scan").unwrap();
+        write(
+            dir.path(),
+            "modules/foo.nix",
+            "{ ... }: { imports = [ ../common ]; home.file.\"x\".source = ../scripts/hello.sh; }",
+        );
+        write(
+            dir.path(),
+            "common/default.nix",
+            "{ ... }: { imports = [ ./base.nix ]; }",
+        );
+        write(dir.path(), "common/base.nix", "{ }");
+        write(dir.path(), "scripts/hello.sh", "echo hi");
+        let root = fs::canonicalize(dir.path()).unwrap();
+
+        let result = scan(&root, &[root.join("modules/foo.nix")]);
+
+        assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+        let rel: Vec<PathBuf> = result
+            .files
+            .iter()
+            .map(|f| f.strip_prefix(&root).unwrap().to_path_buf())
+            .collect();
+        assert_eq!(
+            rel,
+            vec![
+                PathBuf::from("common/base.nix"),
+                PathBuf::from("common/default.nix"),
+                PathBuf::from("modules/foo.nix"),
+                PathBuf::from("scripts/hello.sh"),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_scan_warns_on_missing_dynamic_and_escape() {
+        let dir = TempDir::new("flamingo-scan-warn").unwrap();
+        write(
+            dir.path(),
+            "repo/mod.nix",
+            "{ imports = [ ./gone.nix ]; a = ./cfg/${x}.nix; b = ../outside.nix; }",
+        );
+        write(dir.path(), "outside.nix", "{ }");
+        let root = fs::canonicalize(dir.path().join("repo")).unwrap();
+
+        let result = scan(&root, &[root.join("mod.nix")]);
+
+        assert_eq!(result.files.len(), 1); // only the seed itself
+        assert_eq!(result.warnings.len(), 3);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| matches!(w, Warning::Missing { .. }))
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| matches!(w, Warning::Dynamic { .. }))
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| matches!(w, Warning::OutsideRepo { .. }))
+        );
     }
 }
