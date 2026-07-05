@@ -2,6 +2,7 @@ use std::sync::mpsc;
 
 use crate::app::Config;
 use crate::error::{Error, Result};
+use crate::trim::{self, ExportModule, ExportReport, ExportRequest};
 use crate::tui::command::*;
 use crate::tui::event::Event;
 use crate::tui::ui::{MAIN_TABS, Tab};
@@ -19,6 +20,23 @@ pub enum Panel {
     Modules,
     /// Module content panel.
     Content,
+}
+
+/// Stage of the export flow.
+#[derive(Debug, Default)]
+pub enum ExportStage {
+    /// No export in progress.
+    #[default]
+    Idle,
+    /// Prompting for the new hostname.
+    Hostname,
+    /// Prompting for the output directory.
+    OutputDir {
+        /// Hostname confirmed in the previous stage.
+        hostname: String,
+    },
+    /// Export finished; carries the report or the error message.
+    Done(std::result::Result<ExportReport, String>),
 }
 
 /// Application state.
@@ -50,6 +68,10 @@ pub struct State {
     pub accent_color: Color,
     /// Logo widget.
     pub logo: Logo,
+    /// Export flow stage.
+    pub export_stage: ExportStage,
+    /// Transient status message shown in the input slot.
+    pub status: Option<String>,
 }
 
 impl State {
@@ -69,6 +91,8 @@ impl State {
             strings_loaded: false,
             accent_color: accent_color.unwrap_or(Color::White),
             logo: Logo::default(),
+            export_stage: ExportStage::default(),
+            status: None,
         };
         state.handle_tab()?;
         Ok(state)
@@ -80,6 +104,11 @@ impl State {
         command: Command,
         event_sender: mpsc::Sender<Event>,
     ) -> Result<()> {
+        if matches!(self.export_stage, ExportStage::Done(_)) {
+            self.export_stage = ExportStage::Idle;
+            return Ok(());
+        }
+        self.status = None;
         match command {
             Command::Input(command) => {
                 match command {
@@ -105,7 +134,50 @@ impl State {
                     InputCommand::Exit => {
                         self.input = Input::default();
                         self.input_mode = false;
+                        self.export_stage = ExportStage::Idle;
                     }
+                    InputCommand::Confirm => match std::mem::take(&mut self.export_stage) {
+                        ExportStage::Hostname => {
+                            let hostname = self.input.value().trim().to_string();
+                            if hostname.is_empty() {
+                                self.export_stage = ExportStage::Hostname;
+                            } else {
+                                self.export_stage = ExportStage::OutputDir { hostname };
+                                self.input = Input::default();
+                            }
+                        }
+                        ExportStage::OutputDir { hostname } => {
+                            let value = self.input.value().trim().to_string();
+                            if value.is_empty() {
+                                self.export_stage = ExportStage::OutputDir { hostname };
+                            } else {
+                                let request = ExportRequest {
+                                    source: self.config.source.clone(),
+                                    hostname,
+                                    output_dir: trim::expand_tilde(&value),
+                                    modules: self
+                                        .config
+                                        .modules
+                                        .iter()
+                                        .filter(|module| module.added)
+                                        .map(|module| ExportModule {
+                                            name: module.name.clone(),
+                                            path: module.path.clone().map(PathBuf::from),
+                                        })
+                                        .collect(),
+                                };
+                                let result =
+                                    trim::export(&request).map_err(|error| error.to_string());
+                                self.export_stage = ExportStage::Done(result);
+                                self.input = Input::default();
+                                self.input_mode = false;
+                            }
+                        }
+                        stage => {
+                            self.export_stage = stage;
+                            self.input_mode = false;
+                        }
+                    },
                 }
                 self.handle_tab()?;
             }
@@ -191,6 +263,15 @@ impl State {
                 }
             }
             Command::Nothing => {}
+            Command::Export => {
+                if self.config.modules.iter().any(|module| module.added) {
+                    self.export_stage = ExportStage::Hostname;
+                    self.input = Input::default();
+                    self.input_mode = true;
+                } else {
+                    self.status = Some("no modules added".to_string());
+                }
+            }
         }
         Ok(())
     }
@@ -224,6 +305,7 @@ impl State {
                     ("⇧+Tab", "Previous"),
                     ("Bksp", "Back"),
                     ("q", "Quit"),
+                    ("e", "Export"),
                 ]
             }
         }

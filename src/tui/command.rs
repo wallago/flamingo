@@ -35,6 +35,8 @@ pub enum Command {
     Exit,
     /// Do nothing.
     Nothing,
+    /// Start the export flow.
+    Export,
 }
 
 impl From<KeyEvent> for Command {
@@ -83,6 +85,7 @@ impl From<KeyEvent> for Command {
             KeyCode::Backspace => Self::Input(InputCommand::Resume(Event::Key(key_event))),
             KeyCode::Enter => Self::AddModule,
             KeyCode::Char('o') => Self::OpenRepo,
+            KeyCode::Char('e') => Self::Export,
             _ => Self::Nothing,
         }
     }

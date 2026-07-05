@@ -100,13 +100,10 @@ pub fn render(state: &mut State, frame: &mut Frame) {
             );
         frame.render_widget(tabs, chunks[0]);
         let mut files = Vec::new();
-        // TODO
-        // Add options here to select ?
-        files.push(" ".into());
         frame.render_widget(
-            Paragraph::new(Line::from(files)).alignment(Alignment::Right),
+            Paragraph::new(get_input_line(state)).alignment(Alignment::Right),
             chunks[1],
-        )
+        );
     }
     match state.tab {
         Tab::General => {
@@ -114,6 +111,7 @@ pub fn render(state: &mut State, frame: &mut Frame) {
         }
     }
     render_key_bindings(state, frame, chunks[1]);
+    render_export_popup(state, frame);
 }
 
 /// Renders the key bindings.
@@ -424,10 +422,22 @@ pub fn render_general_info(state: &mut State, frame: &mut Frame, rect: Rect) {
 
 /// Returns the input line.
 fn get_input_line<'a>(state: &'a State) -> Line<'a> {
+    if let Some(status) = &state.status {
+        return Line::from(vec![
+            "|".fg(Color::Rgb(100, 100, 100)),
+            status.clone().yellow(),
+            "|".fg(Color::Rgb(100, 100, 100)),
+        ]);
+    }
+    let label = match &state.export_stage {
+        ExportStage::Hostname => "hostname: ",
+        ExportStage::OutputDir { .. } => "output dir: ",
+        _ => "search: ",
+    };
     if !state.input.value().is_empty() || state.input_mode {
         Line::from(vec![
             "|".fg(Color::Rgb(100, 100, 100)),
-            "search: ".yellow(),
+            label.yellow(),
             state.input.value().fg(state.accent_color),
             if state.input_mode { " " } else { "" }.into(),
             "|".fg(Color::Rgb(100, 100, 100)),
@@ -451,6 +461,72 @@ fn highlight_search_result<'a>(line: Line<'a>, input: &'a Input) -> Vec<Span<'a>
     } else {
         line.spans.clone()
     }
+}
+
+/// Renders the export result popup, if the export flow just finished.
+fn render_export_popup(state: &State, frame: &mut Frame) {
+    let ExportStage::Done(result) = &state.export_stage else {
+        return;
+    };
+    let mut lines = match result {
+        Ok(report) => {
+            let mut lines = vec![
+                Line::from(vec![
+                    "Exported to ".into(),
+                    report.output_dir.display().to_string().green(),
+                ]),
+                Line::from(format!("{} files written", report.files_written.len())),
+            ];
+            if !report.warnings.is_empty() {
+                lines.push(Line::from(
+                    format!("{} warning(s):", report.warnings.len()).yellow(),
+                ));
+                lines.extend(
+                    report
+                        .warnings
+                        .iter()
+                        .take(8)
+                        .map(|warning| Line::from(format!("- {warning}"))),
+                );
+                if report.warnings.len() > 8 {
+                    lines.push(Line::from(format!(
+                        "… and {} more",
+                        report.warnings.len() - 8
+                    )));
+                }
+            }
+            lines
+        }
+        Err(error) => vec![
+            Line::from("Export failed".red()),
+            Line::from(error.as_str()),
+        ],
+    };
+    lines.push(Line::from(
+        "press any key to close".fg(Color::Rgb(100, 100, 100)),
+    ));
+    let area = frame.area();
+    let width = (area.width / 2).clamp(40.min(area.width), area.width.saturating_sub(4));
+    let height = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
+    let popup = Rect::new(
+        area.width.saturating_sub(width) / 2,
+        area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: true }).block(
+            Block::bordered()
+                .title(vec![
+                    "|".fg(Color::Rgb(100, 100, 100)),
+                    "Export".fg(state.accent_color).bold(),
+                    "|".fg(Color::Rgb(100, 100, 100)),
+                ])
+                .title_alignment(Alignment::Center),
+        ),
+        popup,
+    );
 }
 
 #[cfg(test)]
