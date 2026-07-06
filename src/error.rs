@@ -27,6 +27,9 @@ pub enum Error {
     /// Error that may occur during config export.
     #[error("Export error: `{0}`")]
     ExportError(String),
+    /// Error that may occur while loading the application config file.
+    #[error("App config error: `{0}`")]
+    AppConfigError(String),
 }
 
 /// Type alias for the standard [`Result`] type.

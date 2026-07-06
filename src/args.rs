@@ -24,8 +24,12 @@ use crate::tui::ui::Tab;
 )]
 pub struct Args {
     /// Path or URL to the Nixos configuration.
-    #[arg(env = "SOURCE",short = 'c', long, value_name = "PATH | URL",value_parser = verify_flake )]
-    pub config: String,
+    #[arg(env = "SOURCE", short = 's', long, value_name = "PATH | URL", value_parser = verify_flake)]
+    pub source: String,
+
+    /// Path to the application config file (TOML).
+    #[arg(long, value_name = "PATH")]
+    pub config: Option<std::path::PathBuf>,
 
     /// Accent color of the application.
     #[arg(env, long, value_name = "COLOR")]
@@ -101,17 +105,37 @@ mod tests {
     }
 
     #[test]
-    fn test_config_is_required() {
+    fn test_source_is_required() {
         assert!(Args::try_parse_from(["flamingo"]).is_err());
     }
 
     #[test]
-    fn test_config_arg_valid_flake() {
+    fn test_source_arg_valid_flake() {
         let dir = tempdir::TempDir::new("flamingo-test").unwrap();
         std::fs::write(dir.path().join("flake.nix"), "{ outputs = _: { }; }").unwrap();
 
         let args =
-            Args::try_parse_from(["flamingo", "--config", dir.path().to_str().unwrap()]).unwrap();
-        assert_eq!(args.config, dir.path().to_str().unwrap());
+            Args::try_parse_from(["flamingo", "--source", dir.path().to_str().unwrap()]).unwrap();
+        assert_eq!(args.source, dir.path().to_str().unwrap());
+        assert_eq!(args.config, None);
+    }
+
+    #[test]
+    fn test_config_arg_is_a_path() {
+        let dir = tempdir::TempDir::new("flamingo-test").unwrap();
+        std::fs::write(dir.path().join("flake.nix"), "{ outputs = _: { }; }").unwrap();
+
+        let args = Args::try_parse_from([
+            "flamingo",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--config",
+            "/some/config.toml",
+        ])
+        .unwrap();
+        assert_eq!(
+            args.config,
+            Some(std::path::PathBuf::from("/some/config.toml"))
+        );
     }
 }

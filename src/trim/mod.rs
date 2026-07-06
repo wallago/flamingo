@@ -18,6 +18,11 @@ pub struct ExportModule {
     pub name: String,
     /// Absolute path of the module's entry file, if resolved.
     pub path: Option<PathBuf>,
+    /// Whether the generated host profile imports it directly. Modules
+    /// reachable from another selected module come in transitively; wiring
+    /// them again would import their flake-parts wrapper twice, which the
+    /// module system cannot deduplicate.
+    pub top_level: bool,
 }
 
 /// Everything needed to generate a new host config.
@@ -137,8 +142,8 @@ pub fn export(request: &ExportRequest) -> Result<ExportReport> {
             rebase_module_path(Path::new(path), &root, store_root.as_deref())
         }) {
             Some(path) if path.starts_with(&root) => {
-                if let Ok(rel) = path.strip_prefix(&root) {
-                    wired.push(rel.to_path_buf());
+                if module.top_level {
+                    wired.push(module.name.clone());
                 }
                 seeds.push(path);
             }
@@ -198,7 +203,7 @@ pub fn export(request: &ExportRequest) -> Result<ExportReport> {
     };
     fs::write(
         staging.path().join("flake.nix"),
-        generate::flake_nix(&inputs, &request.hostname, &request.source, &wired),
+        generate::flake_nix(&inputs, &request.hostname, &request.source),
     )?;
     files_written.push(PathBuf::from("flake.nix"));
 
@@ -218,19 +223,24 @@ pub fn export(request: &ExportRequest) -> Result<ExportReport> {
     if state_version.is_none() {
         warnings.push(Warning::NoStateVersion);
     }
-    let host_rel = PathBuf::from("hosts").join(&request.hostname);
+    let host_rel = PathBuf::from("modules/hosts").join(&request.hostname);
     let host_dir = staging.path().join(&host_rel);
     fs::create_dir_all(&host_dir)?;
     fs::write(
         host_dir.join("default.nix"),
-        generate::host_default_nix(&request.hostname, state_version.as_deref()),
+        generate::host_default_nix(&request.hostname, state_version.as_deref(), &wired),
     )?;
     fs::write(
-        host_dir.join("hardware-configuration.nix"),
+        host_dir.join("hardware.nix"),
+        generate::host_hardware_nix(&request.hostname),
+    )?;
+    fs::write(
+        host_dir.join("_hardware-configuration.nix"),
         generate::hardware_placeholder(),
     )?;
     files_written.push(host_rel.join("default.nix"));
-    files_written.push(host_rel.join("hardware-configuration.nix"));
+    files_written.push(host_rel.join("hardware.nix"));
+    files_written.push(host_rel.join("_hardware-configuration.nix"));
 
     // Hostname collision check (best effort — new host should be new).
     if let Some(hosts) = nix_raw(&[

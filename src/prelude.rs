@@ -1,3 +1,5 @@
+pub use super::config::keybinding::*;
+pub use super::config::*;
 pub use super::error::*;
 pub use super::module::*;
 pub use super::trim::deps::*;

@@ -1,4 +1,4 @@
-//! **flamingo** - Trimmed your config with style 💃
+//! **flamingo** - Trim Nix config like a pruner.
 
 #![warn(missing_docs, clippy::unwrap_used)]
 
@@ -17,8 +17,11 @@ pub mod error;
 /// Nixos module.
 pub mod module;
 
-/// Trim config behavior.
+/// Trim configuration behavior.
 pub mod trim;
+
+/// App configuration.
+pub mod config;
 
 /// Common types that can be glob-imported for convenience.
 pub mod prelude;
@@ -30,19 +33,20 @@ use ratatui::backend::CrosstermBackend;
 use std::io;
 use tui::{Tui, state::State};
 
-use crate::app::Config;
+use crate::app::Flake;
 
 /// Runs app.
 pub fn run(args: Args) -> Result<()> {
-    let mut config = Config::new(&args.config)?;
-    config.extract_modules()?;
-    start_tui(args, config)
+    let config = AppConfig::load(args.config.as_deref())?;
+    let mut flake = Flake::new(&args.source)?;
+    flake.extract_modules(&config)?;
+    start_tui(args, &config, flake)
 }
 
 /// Starts the terminal user interface.
-pub fn start_tui(args: Args, config: Config) -> Result<()> {
+pub fn start_tui(args: Args, config: &AppConfig, flake: Flake) -> Result<()> {
     // Create an application.
-    let mut state = State::new(args.accent_color, config)?;
+    let mut state = State::new(args.accent_color, flake, config.keybindings.clone())?;
 
     // Change tab depending on cli arguments.
     state.set_tab(args.tab)?;
@@ -65,7 +69,7 @@ pub fn start_tui(args: Args, config: Config) -> Result<()> {
                 let command = if state.input_mode {
                     Command::Input(InputCommand::parse(key_event, &state.input))
                 } else {
-                    Command::from(key_event)
+                    state.keybindings.command_for(&key_event)
                 };
                 state.run_command(command, tui.events.sender.clone())?;
             }

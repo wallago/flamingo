@@ -1,7 +1,27 @@
+# flamingo config. 
+# Default lookup: $XDG_CONFIG_HOME/flamingo/config.toml,
+# override with --config <path>. 
+# Every key is optional; omitted keys keep their built-in defaults.
+
+# Modules marked as added on startup.
+[modules]
+nixos = ["general"]
+home_manager = ["general"]
+
+# Keybindings to replace from defaults ones.
 [keybindings]
-list_next = ["j", "down"]
-list_previous = ["k", "up"]
-content_scroll_down = "l"
-content_scroll_up = "h"
+list_next = ["n", "down"]
+list_previous = ["o", "up"]
+list_page_next = ["pagedown", "ctrl+d"]
+list_page_previous = ["pageup", "ctrl+u"]
+content_scroll_down = ["e", "right"]
+content_scroll_up = ["i", "left"]
+tab_next = "tab"
+tab_previous = "backtab"
+top = ["I", "home"]
+bottom = ["E", "end"]
+search = ["/", "ctrl+f"]
+add_module = "enter"
+open_repo = "w"
+export = "x"
 quit = ["q", "esc"]
-export = "e"
