@@ -2,59 +2,61 @@ use std::rc::Rc;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Stylize},
-    text::{Line, Span, Text},
-    widgets::{Block, Paragraph},
+    layout::{Alignment, Constraint, Flex, Layout, Margin, Rect},
+    style::{Color, Style, Stylize},
+    text::{Line, Text},
+    widgets::{Block, Padding, Paragraph, Wrap},
 };
 use tui_big_text::{BigTextBuilder, PixelSize};
 
 use crate::tui::state::State;
 
+/// Width of the big-text banner and its taglines.
+const BANNER_WIDTH: u16 = 34;
+
 fn create_layout(chunk: Rect) -> Rc<[Rect]> {
-    Layout::new(
-        Direction::Vertical,
-        [
-            Constraint::Percentage(5),
-            Constraint::Length(7),
-            Constraint::Percentage(100),
-        ],
-    )
+    Layout::vertical([
+        Constraint::Percentage(5),   // chunks[0]: top spacer
+        Constraint::Length(7),       // chunks[1]: banner
+        Constraint::Percentage(100), // chunks[2]: info panel
+    ])
     .margin(1)
     .split(chunk)
 }
 
-fn create_banner_layout(chunk: Rect, width: u16) -> Rc<[Rect]> {
-    Layout::new(
-        Direction::Horizontal,
-        [
-            Constraint::Length((chunk.width.checked_sub(width)).unwrap_or_default() / 2),
-            Constraint::Min(width),
-            Constraint::Length((chunk.width.checked_sub(width)).unwrap_or_default() / 2),
-        ],
-    )
-    .split(chunk)
+/// Returns a rect of at most `width` x `height`, horizontally centered
+/// and pinned to the top of `chunk`.
+fn centered(chunk: Rect, width: u16, height: u16) -> Rect {
+    let [area] = Layout::vertical([Constraint::Max(height)]).areas(chunk);
+    let [area] = Layout::horizontal([Constraint::Length(width)])
+        .flex(Flex::Center)
+        .areas(area);
+    area
 }
 
-fn render_line<'a>(accent_color: Color, key: &'a str, value: &'a str) -> Line<'a> {
-    Line::from(vec![
-        key.cyan(),
-        Span::raw(": ").fg(Color::Gray),
-        value.fg(accent_color),
-    ])
+fn render_lines<'a>(accent_color: Color, lines: Vec<(&'a str, &'a str)>) -> Vec<Line<'a>> {
+    lines
+        .iter()
+        .map(|(key, value)| {
+            Line::from(vec![
+                key.cyan(),
+                ": ".fg(Color::Gray),
+                value.fg(accent_color),
+            ])
+        })
+        .collect()
 }
 
-/// Renders the general info tab.
-pub fn render_general(state: &mut State, frame: &mut Frame, chunk: Rect) {
-    frame.render_widget(Block::bordered(), chunk);
-    let chunks = create_layout(chunk);
-
-    let banner = BigTextBuilder::default()
-        .pixel_size(PixelSize::Sextant)
-        .lines([format!("{}.", env!("CARGO_PKG_NAME")).into()])
-        .build();
-    let banner_chunks = create_banner_layout(chunks[1], 34);
-    frame.render_widget(banner, banner_chunks[1]);
+/// Renders the big-text logo with the tagline and repository links below it.
+fn render_banner(state: &State, frame: &mut Frame, chunk: Rect) {
+    let area = centered(chunk, BANNER_WIDTH, chunk.height);
+    frame.render_widget(
+        BigTextBuilder::default()
+            .pixel_size(PixelSize::Sextant)
+            .lines([format!("{}.", env!("CARGO_PKG_NAME")).into()])
+            .build(),
+        area,
+    );
     frame.render_widget(
         Paragraph::new(Text::from(vec![
             Line::default(),
@@ -73,100 +75,140 @@ pub fn render_general(state: &mut State, frame: &mut Frame, chunk: Rect) {
             Line::from(vec![
                 "[".fg(Color::Rgb(100, 100, 100)),
                 "with ".into(),
-                "♥".cyan(),
-                " by ".into(),
+                "♥ ".cyan(),
+                "by ".into(),
                 "@wallago".cyan(),
                 "]".fg(Color::Rgb(100, 100, 100)),
             ]),
         ]))
         .centered(),
-        banner_chunks[1],
+        area,
     );
+}
 
-    let lines = {
-        let nixos_added = state
-            .flake
-            .nixos_modules
-            .iter()
-            .filter(|module| module.added)
-            .count();
-        let home_added = state
-            .flake
-            .home_modules
-            .iter()
-            .filter(|module| module.added)
-            .count();
-        vec![
-            render_line(state.accent_color, "Source", &state.flake.source),
-            render_line(
-                state.accent_color,
-                "Nixos Modules",
-                &(state.flake.nixos_modules.len()).to_string(),
-            ),
-            render_line(
-                state.accent_color,
-                "Home Manager Modules",
-                &(state.flake.home_modules.len()).to_string(),
-            ),
-            render_line(
-                state.accent_color,
-                "Added Modules",
-                &(nixos_added + home_added).to_string(),
-            ),
-        ]
-    };
+/// Renders the flake summary in a centered box.
+fn render_info(state: &State, frame: &mut Frame, chunk: Rect) {
+    let nixos_added = state
+        .flake
+        .nixos_modules
+        .iter()
+        .filter(|module| module.added)
+        .count();
+    let home_added = state
+        .flake
+        .home_modules
+        .iter()
+        .filter(|module| module.added)
+        .count();
+    let nixos_total = state.flake.nixos_modules.len();
+    let home_total = state.flake.home_modules.len();
+    let nixos_added = format!(
+        "{} ({}%)",
+        nixos_added,
+        if nixos_total == 0 {
+            0
+        } else {
+            nixos_added * 100 / nixos_total
+        }
+    );
+    let home_added = format!(
+        "{} ({}%)",
+        home_added,
+        if home_total == 0 {
+            0
+        } else {
+            home_added * 100 / home_total
+        }
+    );
+    let nixos_total = nixos_total.to_string();
+    let home_total = home_total.to_string();
 
-    let info_width = lines.iter().map(|v| v.width()).max().unwrap_or_default() as u16 + 2;
-    let rect = area[2].inner(Margin {
-        horizontal: 0,
-        vertical: 1,
+    let input_count = state.flake.input_count.to_string();
+    let commit = state.flake.commit.as_ref().map(|commit| {
+        if state.flake.dirty {
+            format!("{commit} (dirty)")
+        } else {
+            commit.clone()
+        }
     });
-    let area = Layout::new(
-        Direction::Vertical,
-        [Constraint::Max(lines.len() as u16 + 2)],
-    )
-    .split(rect);
-
-    let info_area = Layout::new(
-        Direction::Horizontal,
-        [
-            Constraint::Length((area[0].width.checked_sub(info_width)).unwrap_or_default() / 2),
-            Constraint::Min(info_width),
-            Constraint::Length((area[0].width.checked_sub(info_width)).unwrap_or_default() / 2),
-        ],
-    )
-    .split(area[0])[1];
-
-    let max_height = lines.len().saturating_sub(info_area.height as usize);
-    if max_height + 2 < state.available_option_scroll_index {
-        state.available_option_scroll_index = max_height + 2;
+    let mut flake_info = vec![("Source", state.flake.source.as_str())];
+    if let Some(description) = &state.flake.description {
+        flake_info.push(("Description", description.as_str()));
     }
-
-    // Module list.
+    flake_info.push(("Inputs", &input_count));
+    if let Some(branch) = &state.flake.branch {
+        flake_info.push(("Branch", branch.as_str()));
+    }
+    if let Some(commit) = &commit {
+        flake_info.push(("Commit", commit.as_str()));
+    }
+    let sections = [
+        render_lines(state.accent_color, flake_info),
+        render_lines(
+            state.accent_color,
+            vec![
+                ("Nixos Modules", &nixos_total),
+                ("Added Nixos Modules", &nixos_added),
+            ],
+        ),
+        render_lines(
+            state.accent_color,
+            vec![
+                ("Home Manager Modules", &home_total),
+                ("Added Home Manager Modules", &home_added),
+            ],
+        ),
+    ];
+    let inner_width = sections
+        .iter()
+        .flatten()
+        .map(|v| v.width())
+        .max()
+        .unwrap_or_default();
+    let separator = Line::from(
+        ratatui::symbols::line::HORIZONTAL
+            .repeat(inner_width)
+            .fg(Color::Gray),
+    );
+    let mut lines = Vec::new();
+    for (i, section) in sections.into_iter().enumerate() {
+        if i > 0 {
+            lines.push(separator.clone());
+        }
+        lines.extend(section);
+    }
+    // Borders (2) + horizontal padding (2); height adds the top padding.
+    let info_width = inner_width as u16 + 4;
+    let info_area = centered(
+        chunk.inner(Margin {
+            horizontal: 0,
+            vertical: 1,
+        }),
+        info_width,
+        lines.len() as u16 + 3,
+    );
     frame.render_widget(
         Paragraph::new(lines)
             .block(
                 Block::bordered()
                     .title(Line::from(vec![
-                        "|".fg(Color::Rgb(100, 100, 100)),
+                        "|".fg(Color::Gray),
                         "Nixos Config".cyan(),
-                        "|".fg(Color::Rgb(100, 100, 100)),
+                        "|".fg(Color::Gray),
                     ]))
                     .title_alignment(Alignment::Center)
-                    .border_style(Style::default().fg(Color::Rgb(100, 100, 100))),
+                    .border_style(Style::default().fg(Color::Gray))
+                    .padding(Padding::new(1, 1, 1, 0)),
             )
-            .scroll((state.available_option_scroll_index as u16, 0))
             .wrap(Wrap { trim: true }),
         info_area,
     );
-    frame.render_stateful_widget(
-        Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(Some("↑"))
-            .end_symbol(Some("↓")),
-        info_area.inner(Margin {
-            vertical: 1,
-            horizontal: 0,
-        }),
-        &mut ScrollbarState::new(max_height).position(state.available_option_scroll_index),
-    );
+}
+
+/// Renders the general info tab.
+pub fn render_general(state: &mut State, frame: &mut Frame, chunk: Rect) {
+    frame.render_widget(Block::bordered(), chunk);
+    let chunks = create_layout(chunk);
+    render_banner(state, frame, chunks[1]);
+    render_info(state, frame, chunks[2]);
 }

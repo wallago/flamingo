@@ -7,7 +7,9 @@ use crate::{
 
 impl State {
     pub fn export(&mut self) -> Result<()> {
-        if self.flake.nixos_modules.iter().any(|module| module.added) {
+        if self.flake.nixos_modules.iter().any(|module| module.added)
+            && self.flake.home_modules.iter().any(|module| module.added)
+        {
             self.export_stage = ExportStage::Hostname;
             self.input = Input::default();
             self.input_mode = true;

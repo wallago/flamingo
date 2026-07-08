@@ -3,13 +3,15 @@ use std::sync::mpsc;
 use crate::app::Flake;
 use crate::config::keybinding::Keybindings;
 use crate::error::Result;
+use crate::module::Module;
 use crate::trim::ExportReport;
 use crate::tui::command::*;
 use crate::tui::event::Event;
-use crate::tui::ui::{MAIN_TABS, Tab};
+use crate::tui::ui::prelude::*;
 use crate::tui::widgets::list::SelectableList;
 use crate::tui::widgets::logo::Logo;
 use ratatui::style::Color;
+use ratatui_explorer::FileExplorer;
 use tui_input::Input;
 
 mod add_module;
@@ -21,17 +23,6 @@ mod next;
 mod open_repo;
 mod previous;
 mod top;
-
-/// Focusable module panels.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum ModulePanel {
-    /// Module list panel.
-    #[default]
-    Modules,
-    /// Module content panel.
-    // TODO tui-syntax-highlight
-    Content,
-}
 
 /// Stage of the export flow.
 #[derive(Debug, Default)]
@@ -64,23 +55,21 @@ pub struct State {
     /// Strings call completed.
     pub strings_loaded: bool,
 
+    pub explorer: Option<FileExplorer>,
+
     // -- Navigation --
     /// Selected tab.
     pub tab: Tab,
-    /// Focused Nixos module panel.
-    pub nixos_module_panel: ModulePanel,
-    /// Focused HomeManager module panel.
-    pub home_module_panel: ModulePanel,
 
     // -- Tab content --
     /// Module rows shown in the Config tab, as `(depth, module index)`.
     pub module_rows: Vec<(usize, usize)>,
     /// List items.
     pub list: SelectableList<Vec<String>>,
-    /// Available config options scroll index.
-    pub available_option_scroll_index: usize,
-    /// Selected config options scroll index.
-    pub selected_option_scroll_index: usize,
+    /// Nixos modules options scroll index.
+    pub nixos: ModuleTabState,
+    /// HomeManager modules options scroll index.
+    pub home: ModuleTabState,
 
     // -- Input & status --
     /// Input.
@@ -114,16 +103,15 @@ impl State {
             keybindings,
             strings_loaded: false,
             tab: Tab::default(),
-            nixos_module_panel: ModulePanel::default(),
-            home_module_panel: ModulePanel::default(),
             module_rows: Vec::new(),
             list: SelectableList::default(),
-            available_option_scroll_index: 0,
-            selected_option_scroll_index: 0,
+            nixos: ModuleTabState::default(),
+            home: ModuleTabState::default(),
             input: Input::default(),
             input_mode: false,
             status: None,
             export_stage: ExportStage::default(),
+            explorer: None,
             accent_color: accent_color.unwrap_or(Color::White),
             logo: Logo::default(),
         };
@@ -157,6 +145,38 @@ impl State {
         Ok(())
     }
 
+    pub fn focused_module_tab(&self) -> Option<&ModuleTabState> {
+        match self.tab {
+            Tab::NixosModules => Some(&self.nixos),
+            Tab::HomeManagerModules => Some(&self.home),
+            _ => None,
+        }
+    }
+
+    pub fn focused_module_tab_mut(&mut self) -> Option<&mut ModuleTabState> {
+        match self.tab {
+            Tab::NixosModules => Some(&mut self.nixos),
+            Tab::HomeManagerModules => Some(&mut self.home),
+            _ => None,
+        }
+    }
+
+    pub fn focused_modules(&self) -> Option<&Vec<Module>> {
+        match self.tab {
+            Tab::NixosModules => Some(&self.flake.nixos_modules),
+            Tab::HomeManagerModules => Some(&self.flake.home_modules),
+            _ => None,
+        }
+    }
+
+    pub fn focused_modules_mut(&mut self) -> Option<&mut Vec<Module>> {
+        match self.tab {
+            Tab::NixosModules => Some(&mut self.flake.nixos_modules),
+            Tab::HomeManagerModules => Some(&mut self.flake.home_modules),
+            _ => None,
+        }
+    }
+
     /// Update the state based on selected tab.
     pub fn handle_tab(&mut self) -> Result<()> {
         match self.tab {
@@ -164,12 +184,23 @@ impl State {
                 self.module_rows = Vec::new();
                 self.list = SelectableList::default();
             }
-            Tab::Config => {
-                self.module_rows = self.flake.nixos_modules.module_tree();
+            Tab::NixosModules => {
+                let modules = &self.flake.nixos_modules;
+                self.module_rows = self.flake.module_tree(modules);
                 self.list = SelectableList::with_items(
                     self.module_rows
                         .iter()
-                        .map(|(_, index)| vec![self.config.modules[*index].name.clone()])
+                        .map(|(_, index)| vec![modules[*index].name.clone()])
+                        .collect(),
+                );
+            }
+            Tab::HomeManagerModules => {
+                let modules = &self.flake.home_modules;
+                self.module_rows = self.flake.module_tree(modules);
+                self.list = SelectableList::with_items(
+                    self.module_rows
+                        .iter()
+                        .map(|(_, index)| vec![modules[*index].name.clone()])
                         .collect(),
                 );
             }
@@ -186,13 +217,16 @@ impl State {
                     (keys.open_repo.label(), "Open docs"),
                     (keys.tab_next.label(), "Next"),
                     (keys.tab_previous.label(), "Previous"),
+                    (keys.export.label(), "Export"),
                     (keys.quit.label(), "Quit"),
                 ]
             }
-            Tab::Config => {
+            Tab::NixosModules => {
                 vec![
                     (keys.add_module.label(), "Add module"),
-                    (keys.export.label(), "Export"),
+                    (keys.tab_next.label(), "Next"),
+                    (keys.tab_previous.label(), "Previous"),
+                    (keys.quit.label(), "Quit"),
                     (
                         format!(
                             "{}/{}",
@@ -205,9 +239,26 @@ impl State {
                         format!("{}/{}", keys.list_next.label(), keys.list_previous.label()),
                         "Scroll",
                     ),
+                ]
+            }
+            Tab::HomeManagerModules => {
+                vec![
+                    (keys.add_module.label(), "Add module"),
                     (keys.tab_next.label(), "Next"),
                     (keys.tab_previous.label(), "Previous"),
                     (keys.quit.label(), "Quit"),
+                    (
+                        format!(
+                            "{}/{}",
+                            keys.content_scroll_up.label(),
+                            keys.content_scroll_down.label()
+                        ),
+                        "Focus panel",
+                    ),
+                    (
+                        format!("{}/{}", keys.list_next.label(), keys.list_previous.label()),
+                        "Scroll",
+                    ),
                 ]
             }
         }

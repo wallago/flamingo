@@ -1,12 +1,11 @@
-use crate::{
-    error::Result,
-    tui::{state::State, ui::Tab},
-};
+use crate::{error::Result, tui::state::State};
 
 impl State {
     pub fn top(&mut self) -> Result<()> {
         self.list.first();
-        self.selected_option_scroll_index = 0;
+        if let Some(tab) = self.focused_module_tab_mut() {
+            tab.scroll_index = 0;
+        }
         Ok(())
     }
 }

@@ -2,10 +2,17 @@ use ratatui::{Frame, layout::Rect};
 
 use crate::tui::{
     state::State,
-    ui::{body::key_bindings::render_key_bindings, tab::Tab},
+    ui::{
+        body::{
+            general::render_general, home_modules::render_home_modules,
+            key_bindings::render_key_bindings, nixos_modules::render_nixos_modules,
+        },
+        tab::Tab,
+    },
 };
 
 mod general;
+mod home_modules;
 mod key_bindings;
 mod nixos_modules;
 

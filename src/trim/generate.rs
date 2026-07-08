@@ -91,11 +91,21 @@ pub fn flake_nix(inputs: &str, hostname: &str, source: &str) -> String {
 
 /// Generates modules/hosts/<hostname>/default.nix: the hardcoded profile
 /// wiring the selected modules by name, in the source config's idiom.
-pub fn host_default_nix(hostname: &str, state_version: Option<&str>, modules: &[String]) -> String {
+pub fn host_default_nix(
+    hostname: &str,
+    state_version: Option<&str>,
+    nixos_modules: &[String],
+    home_modules: &[String],
+) -> String {
     let capitalized = capitalize(hostname);
-    let imports = modules
+    let nixos_imports = nixos_modules
         .iter()
         .map(|name| format!("      self.nixosModules.{name}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let home_imports = home_modules
+        .iter()
+        .map(|name| format!("      self.homeModules.{name}"))
         .collect::<Vec<_>>()
         .join("\n");
     let state_version = match state_version {
@@ -121,11 +131,25 @@ pub fn host_default_nix(hostname: &str, state_version: Option<&str>, modules: &[
 
   flake.nixosModules.config{capitalized} = {{
     imports = [
-{imports}
+{nixos_imports}
     ];
 
     networking.hostName = \"{hostname}\";
 {state_version}
+
+    fileSystems.\"/persist\".neededForBoot = true;
+    fileSystems.\"/home\".neededForBoot = true;
+
+    preferences.user = {{
+        name = \"{hostname}\";
+    }};
+    home-manager.users.{hostname} = {{
+        imports = [
+    {home_imports}
+        ];
+
+        preferences.user.name = \"{hostname}\";
+      }};
   }};
 }}
 "
@@ -141,6 +165,31 @@ pub fn host_hardware_nix(hostname: &str) -> String {
   flake.nixosModules.hardware{capitalized} = ./_hardware-configuration.nix;
 }}
 "
+    )
+}
+
+pub fn parts_nix() -> String {
+    format!(
+        "
+{{ inputs, ... }}:
+{{
+  imports = [
+    inputs.home-manager.flakeModules.home-manager
+    inputs.disko.flakeModules.default
+  ];
+
+  systems = [
+    \"x86_64-linux\"
+    \"aarch64-linux\"
+  ];
+
+  perSystem =
+    {{ pkgs, ... }}:
+    {{
+      formatter = pkgs.nixfmt-tree;
+    }};
+}}
+    "
     )
 }
 
@@ -219,13 +268,11 @@ mod tests {
         );
         assert!(out.contains("trimmed from github:wallago/nix-config"));
         // flake-parts shape: modules are auto-imported, never listed.
-        assert!(
-            out.contains(
-                "outputs = inputs: \
+        assert!(out.contains(
+            "outputs = inputs: \
                  inputs.flake-parts.lib.mkFlake { inherit inputs; } \
                  (inputs.import-tree ./modules);"
-            )
-        );
+        ));
         // The machinery inputs are appended when the source lacks them.
         assert!(out.contains("flake-parts.url"));
         assert!(out.contains("import-tree.url"));

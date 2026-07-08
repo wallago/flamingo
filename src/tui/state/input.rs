@@ -1,15 +1,17 @@
 use std::sync::mpsc;
 
+use ratatui::style::{Style, Stylize};
+use ratatui_explorer::{FileExplorerBuilder, Theme};
 use tui_input::{Input, backend::crossterm::EventHandler};
 
 use crate::{
     error::Result,
+    prelude::prelude::Tab,
     trim::{self, ExportRequest},
     tui::{
         command::InputCommand,
         event::Event,
         state::{ExportStage, State},
-        ui::Tab,
     },
 };
 
@@ -21,7 +23,11 @@ impl State {
     ) -> Result<()> {
         match command {
             InputCommand::Handle(event) => {
-                self.input.handle_event(&event);
+                if let Some(explorer) = self.explorer.as_mut() {
+                    explorer.handle(&event)?;
+                } else {
+                    self.input.handle_event(&event);
+                }
             }
             InputCommand::Enter => {}
             InputCommand::Resume(event) => {
@@ -40,6 +46,7 @@ impl State {
                 self.input = Input::default();
                 self.input_mode = false;
                 self.export_stage = ExportStage::Idle;
+                self.explorer = None;
             }
             InputCommand::Confirm => match std::mem::take(&mut self.export_stage) {
                 ExportStage::Hostname => {
@@ -49,25 +56,39 @@ impl State {
                     } else {
                         self.export_stage = ExportStage::OutputDir { hostname };
                         self.input = Input::default();
+                        let theme = Theme::default()
+                            .with_highlight_symbol("> ")
+                            .with_highlight_item_style(
+                                Style::default().fg(self.accent_color).bold(),
+                            )
+                            .with_highlight_dir_style(
+                                Style::default().fg(self.accent_color).bold(),
+                            );
+                        self.explorer = Some(FileExplorerBuilder::build_with_theme(theme)?);
                     }
                 }
-                ExportStage::OutputDir { hostname } => {
-                    let value = self.input.value().trim().to_string();
-                    if value.is_empty() {
-                        self.export_stage = ExportStage::OutputDir { hostname };
-                    } else {
+                ExportStage::OutputDir { hostname } => match self.explorer.take() {
+                    Some(explorer) => {
+                        let current = explorer.current();
+                        let output_dir = if current.is_dir() {
+                            current.path().clone()
+                        } else {
+                            explorer.cwd().clone()
+                        };
                         let request = ExportRequest {
                             source: self.flake.source.clone(),
                             hostname,
-                            output_dir: trim::expand_tilde(&value),
-                            modules: self.flake.export_selection(),
+                            output_dir,
+                            nixos_modules: self.flake.export_selection(&self.flake.nixos_modules),
+                            home_modules: self.flake.export_selection(&self.flake.home_modules),
                         };
                         let result = trim::export(&request).map_err(|error| error.to_string());
                         self.export_stage = ExportStage::Done(result);
                         self.input = Input::default();
                         self.input_mode = false;
                     }
-                }
+                    None => self.export_stage = ExportStage::OutputDir { hostname },
+                },
                 stage => {
                     self.export_stage = stage;
                     self.input_mode = false;

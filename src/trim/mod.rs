@@ -35,7 +35,9 @@ pub struct ExportRequest {
     /// Directory to create the new config in.
     pub output_dir: PathBuf,
     /// Modules to export.
-    pub modules: Vec<ExportModule>,
+    pub nixos_modules: Vec<ExportModule>,
+    /// Modules to export.
+    pub home_modules: Vec<ExportModule>,
 }
 
 /// Outcome of a successful export.
@@ -98,7 +100,13 @@ fn flake_root(source: &str) -> Result<PathBuf> {
 
 /// Returns the flake's store path from `nix flake metadata`, if available.
 fn flake_store_path(source: &str) -> Option<PathBuf> {
-    let out = nix_raw(&["flake", "metadata", "--json", "--no-write-lock-file", source])?;
+    let out = nix_raw(&[
+        "flake",
+        "metadata",
+        "--json",
+        "--no-write-lock-file",
+        source,
+    ])?;
     let metadata: serde_json::Value = serde_json::from_str(&out).ok()?;
     Some(PathBuf::from(metadata.get("path")?.as_str()?))
 }
@@ -136,22 +144,28 @@ pub fn export(request: &ExportRequest) -> Result<ExportReport> {
     let mut warnings = Vec::new();
 
     let mut seeds = Vec::new();
-    let mut wired = Vec::new();
-    for module in &request.modules {
-        match module.path.as_ref().and_then(|path| {
-            rebase_module_path(Path::new(path), &root, store_root.as_deref())
-        }) {
-            Some(path) if path.starts_with(&root) => {
-                if module.top_level {
-                    wired.push(module.name.clone());
+    let mut nixos_wired = Vec::new();
+    let mut home_wired = Vec::new();
+    let mut wiring =
+        |modules: Vec<ExportModule>, wired: &mut Vec<String>| {
+            for module in &modules {
+                match module.path.as_ref().and_then(|path| {
+                    rebase_module_path(Path::new(path), &root, store_root.as_deref())
+                }) {
+                    Some(path) if path.starts_with(&root) => {
+                        if module.top_level {
+                            wired.push(module.name.clone());
+                        }
+                        seeds.push(path);
+                    }
+                    _ => warnings.push(Warning::UnresolvedModule {
+                        name: module.name.clone(),
+                    }),
                 }
-                seeds.push(path);
             }
-            _ => warnings.push(Warning::UnresolvedModule {
-                name: module.name.clone(),
-            }),
-        }
-    }
+        };
+    wiring(request.nixos_modules.clone(), &mut nixos_wired);
+    wiring(request.home_modules.clone(), &mut home_wired);
     if seeds.is_empty() {
         let skipped = warnings
             .iter()
@@ -223,12 +237,21 @@ pub fn export(request: &ExportRequest) -> Result<ExportReport> {
     if state_version.is_none() {
         warnings.push(Warning::NoStateVersion);
     }
+    fs::write(
+        staging.path().join("modules/parts.nix"),
+        generate::parts_nix(),
+    )?;
     let host_rel = PathBuf::from("modules/hosts").join(&request.hostname);
     let host_dir = staging.path().join(&host_rel);
     fs::create_dir_all(&host_dir)?;
     fs::write(
         host_dir.join("default.nix"),
-        generate::host_default_nix(&request.hostname, state_version.as_deref(), &wired),
+        generate::host_default_nix(
+            &request.hostname,
+            state_version.as_deref(),
+            &nixos_wired,
+            &home_wired,
+        ),
     )?;
     fs::write(
         host_dir.join("hardware.nix"),

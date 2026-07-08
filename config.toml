@@ -6,22 +6,22 @@
 # Modules marked as added on startup.
 [modules]
 nixos = ["general"]
-home_manager = ["general"]
+home = ["general"]
 
 # Keybindings to replace from defaults ones.
 [keybindings]
-list_next = ["n", "down"]
-list_previous = ["o", "up"]
+list_next = ["e", "down"]
+list_previous = ["i", "up"]
 list_page_next = ["pagedown", "ctrl+d"]
 list_page_previous = ["pageup", "ctrl+u"]
-content_scroll_down = ["e", "right"]
-content_scroll_up = ["i", "left"]
+content_scroll_down = ["o", "right"]
+content_scroll_up = ["n", "left"]
 tab_next = "tab"
 tab_previous = "backtab"
 top = ["I", "home"]
 bottom = ["E", "end"]
 search = ["/", "ctrl+f"]
-add_module = "enter"
+add_module = ["enter", "space"]
 open_repo = "w"
 export = "x"
 quit = ["q", "esc"]

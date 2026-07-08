@@ -1,10 +1,7 @@
 use crate::{
     error::Result,
-    tui::{
-        command::ScrollType,
-        state::{Panel, State},
-        ui::{MAIN_TABS, Tab},
-    },
+    prelude::prelude::ModulePanel,
+    tui::{command::ScrollType, state::State, ui::MAIN_TABS},
 };
 
 impl State {
@@ -17,20 +14,28 @@ impl State {
                 self.handle_tab()?;
             }
             ScrollType::Table => {
-                if self.tab == Tab::Config {
-                    self.focused_panel = Panel::Content;
+                if let Some(tab) = self.focused_module_tab_mut() {
+                    tab.panel = ModulePanel::Content;
                 }
             }
-            ScrollType::List => match self.focused_panel {
-                Panel::Modules => {
-                    self.list.next(amount);
-                    self.selected_option_scroll_index = 0;
+            ScrollType::List => {
+                let Some(panel) = self.focused_module_tab().map(|tab| tab.panel) else {
+                    return Ok(());
+                };
+                match panel {
+                    ModulePanel::Modules => {
+                        self.list.next(amount);
+                        if let Some(tab) = self.focused_module_tab_mut() {
+                            tab.scroll_index = 0;
+                        }
+                    }
+                    ModulePanel::Content => {
+                        if let Some(tab) = self.focused_module_tab_mut() {
+                            tab.scroll_index = tab.scroll_index.saturating_add(amount);
+                        }
+                    }
                 }
-                Panel::Content => {
-                    self.selected_option_scroll_index =
-                        self.selected_option_scroll_index.saturating_add(amount);
-                }
-            },
+            }
         }
         Ok(())
     }

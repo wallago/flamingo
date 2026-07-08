@@ -1,3 +1,5 @@
+use crate::tui::ui::module_panel::ModulePanel;
+
 /// Application tab.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default, clap::ValueEnum)]
 pub enum Tab {
@@ -26,4 +28,13 @@ impl From<usize> for Tab {
             _ => Self::default(),
         }
     }
+}
+
+/// UI state owned by one module tab.
+#[derive(Debug, Default)]
+pub struct ModuleTabState {
+    /// Focused panel.
+    pub panel: ModulePanel,
+    /// Content scroll index.
+    pub scroll_index: usize,
 }

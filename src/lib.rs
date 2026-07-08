@@ -38,8 +38,7 @@ use crate::app::Flake;
 /// Runs app.
 pub fn run(args: Args) -> Result<()> {
     let config = AppConfig::load(args.config.as_deref())?;
-    let mut flake = Flake::new(&args.source)?;
-    flake.extract_modules(&config)?;
+    let flake = Flake::load(&args.source, &config)?;
     start_tui(args, &config, flake)
 }
 

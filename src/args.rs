@@ -4,7 +4,7 @@ use clap::Parser;
 use ratatui::style::Color;
 use url::Url;
 
-use crate::tui::ui::Tab;
+use crate::tui::ui::prelude::Tab;
 
 /// Argument parser powered by [`clap`].
 #[derive(Clone, Debug, Default, Parser)]

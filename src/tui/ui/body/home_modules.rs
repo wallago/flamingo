@@ -6,8 +6,8 @@ use ratatui::{
 
 use crate::tui::{state::State, ui::module_panel::ModulePanel};
 
-/// Renders the Nixos modules tab: module tree and content panels.
-pub fn render_nixos_modules(state: &mut State, frame: &mut Frame, chunk: Rect) {
+/// Renders the Home Manager modules tab: module tree and content panels.
+pub fn render_home_modules(state: &mut State, frame: &mut Frame, chunk: Rect) {
     frame.render_widget(Block::bordered(), chunk);
 
     if state.list.items.is_empty() {
